@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-android:
-    name: Build Android APK (with Custom Icon)
+    name: Build Signed Android APK (v1+v2+v3 Signature)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -27,23 +27,42 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate Android Folder, Inject Permissions & App Icon
+      - name: Generate Android Platform Folder, Permissions & App Icon
         working-directory: app
         run: |
           cp lib/main.dart /tmp/main.dart.bak
           cp pubspec.yaml /tmp/pubspec.yaml.bak
-          flutter create . --project-name bike_telemetry_app --org edu.asu.mct332s
+          flutter create . --project-name bike_telemetry_app --org edu.asu.mct332s.motoguard
           cp /tmp/pubspec.yaml.bak pubspec.yaml
           cp /tmp/main.dart.bak lib/main.dart
-          sed -i 's/<application/<uses-permission android:name="android.permission.INTERNET"\/><uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"\/><uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"\/><uses-permission android:name="android.permission.BLUETOOTH"\/><uses-permission android:name="android.permission.BLUETOOTH_ADMIN"\/><uses-permission android:name="android.permission.BLUETOOTH_SCAN"\/><uses-permission android:name="android.permission.BLUETOOTH_CONNECT"\/><application/' android/app/src/main/AndroidManifest.xml
+          python3 - << 'EOF'
+          p = "android/app/src/main/AndroidManifest.xml"
+          s = open(p).read()
+          perms = '''    <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+              <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+              <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
+              <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation"/>
+              <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+          '''
+          s = s.replace('<application', perms + '    <application', 1)
+          s = s.replace('android:label="bike_telemetry_app"', 'android:label="MotoGuard Station"')
+          open(p, "w").write(s)
+          EOF
           flutter pub get
           dart run flutter_launcher_icons
 
-      - name: Build Android Release APK
+      - name: Build Universal Release APK & Sign with v1+v2+v3 Keystore
         working-directory: app
         run: |
-          flutter build apk --release
-          cp build/app/outputs/flutter-apk/app-release.apk ../self-driving-motorcycle-android-v1.0.${{ github.run_number }}.apk
+          flutter build apk --release --no-shrink --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
+          # Create a consistent release keystore and explicitly sign with v1, v2, and v3 schemes for Android 10-15 compatibility
+          keytool -genkey -v -keystore release-key.jks -keyalg RSA -keysize 2048 -validity 10000             -alias motoguard -storepass motoguard123 -keypass motoguard123             -dname "CN=MotoGuard, OU=MCT332s, O=ASU, L=Cairo, S=Cairo, C=EG"
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
+          $BUILD_TOOLS_DIR/zipalign -v -p 4 build/app/outputs/flutter-apk/app-release.apk aligned.apk
+          $BUILD_TOOLS_DIR/apksigner sign --ks release-key.jks --ks-key-alias motoguard             --ks-pass pass:motoguard123 --key-pass pass:motoguard123             --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true             --out ../self-driving-motorcycle-android-v1.0.${{ github.run_number }}.apk aligned.apk
+          $BUILD_TOOLS_DIR/apksigner verify -v ../self-driving-motorcycle-android-v1.0.${{ github.run_number }}.apk
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
@@ -68,9 +87,10 @@ jobs:
         run: |
           cp lib/main.dart /tmp/main.dart.bak
           cp pubspec.yaml /tmp/pubspec.yaml.bak
-          flutter create . --project-name bike_telemetry_app --org edu.asu.mct332s
+          flutter create . --project-name bike_telemetry_app --org edu.asu.mct332s.motoguard
           cp /tmp/pubspec.yaml.bak pubspec.yaml
           cp /tmp/main.dart.bak lib/main.dart
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 'MotoGuard Station'" ios/Runner/Info.plist || true
           /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string 'Required to track live motorcycle GPS route on map.'" ios/Runner/Info.plist || true
           /usr/libexec/PlistBuddy -c "Add :NSBluetoothAlwaysUsageDescription string 'Required to select and connect to your ESP32 Bluetooth module.'" ios/Runner/Info.plist || true
           /usr/libexec/PlistBuddy -c "Add :NSBluetoothPeripheralUsageDescription string 'Required to receive live motorcycle sensor telemetry.'" ios/Runner/Info.plist || true
@@ -80,7 +100,7 @@ jobs:
       - name: Build Unsigned iOS Release & Package as .ipa
         working-directory: app
         run: |
-          flutter build ios --release --no-codesign
+          flutter build ios --release --no-codesign --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
           zip -r ../self-driving-motorcycle-ios-v1.0.${{ github.run_number }}.ipa Payload
@@ -108,11 +128,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: "Self-Balancing Motorcycle App v1.0.${{ github.run_number }} (Android & iOS)"
+          name: "MotoGuard Station v1.0.${{ github.run_number }} (Android & iOS)"
           body: |
-            ### 🏍️ Self-Balancing Motorcycle Station (MCT332s) — v1.0.${{ github.run_number }}
-            - **Android Release (`.apk`):** Includes Bluetooth Module Picker, Instant Arabic/English Map Autocomplete (e.g., Faculty of Engineering Ain Shams University), Custom Motorcycle App Icon, and 4-Sensor Fall-Prediction Station.
-            - **iOS Release (`.ipa`):** Unsigned iOS bundle for iPhone/iPad (installable via AltStore / Sideloadly).
+            ### 🏍️ MotoGuard Self-Balancing Motorcycle Station (MCT332s) — v1.0.${{ github.run_number }}
+            - **Android Release (`.apk`):** Signed with v1+v2+v3 APK signatures (`zipalign` + `apksigner`). If upgrading from an older build, uninstall the previous `bike_telemetry_app` first.
+            - **iOS Release (`.ipa`):** Unsigned iOS bundle for iPhone/iPad.
           files: |
             release_files/android-apk/*.apk
             release_files/ios-ipa/*.ipa
