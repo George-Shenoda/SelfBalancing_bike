@@ -1,5 +1,5 @@
 name: bike_telemetry_app
-description: MCT332s Smart Bike Sensor Station - 4 Sensors, Fall Prediction, Rain Safety & GPS Navigation.
+description: MCT332s Self-Balancing Motorcycle - Live GPS Navigation, Bluetooth Module Picker & 4-Sensor Fall Prediction (Android & iOS).
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -19,6 +19,15 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/icon/app_icon.png"
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon/app_icon.png

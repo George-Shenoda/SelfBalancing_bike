@@ -1,5 +1,5 @@
 /*
- * MCT332s Smart Bike Sensor Station — 4-Sensor ESP32 BLE + Wi-Fi Firmware
+ * MCT332s Smart Motorcycle Sensor Station — 4-Sensor ESP32 BLE + Wi-Fi Firmware
  * 1. S1 (ON/OFF): Water-Drop / Rain Sensor (FC-37) on GPIO 27
  * 2. S2 (0-5V Analog): 10k Steering Angle Potentiometer on GPIO 34
  * 3. S3 (Conditioned): Wheel Speed Encoder + LPF + Schmitt Trigger on GPIO 18
