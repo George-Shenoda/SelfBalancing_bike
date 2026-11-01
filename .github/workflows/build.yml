@@ -1,17 +1,16 @@
-name: Build App & Publish GitHub Release
+name: Build Android APK & iOS IPA + Publish GitHub Release
 
 on:
   push:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
-# Required so GITHUB_TOKEN can create tags and publish GitHub Releases automatically
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    name: Build Android APK & Create GitHub Release
+  build-android:
+    name: Build Android APK (with Custom Icon)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -28,7 +27,7 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate Android Platform Folder & Inject GPS/BLE Permissions
+      - name: Generate Android Folder, Inject Permissions & App Icon
         working-directory: app
         run: |
           cp lib/main.dart /tmp/main.dart.bak
@@ -37,34 +36,86 @@ jobs:
           cp /tmp/pubspec.yaml.bak pubspec.yaml
           cp /tmp/main.dart.bak lib/main.dart
           sed -i 's/<application/<uses-permission android:name="android.permission.INTERNET"\/><uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"\/><uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"\/><uses-permission android:name="android.permission.BLUETOOTH"\/><uses-permission android:name="android.permission.BLUETOOTH_ADMIN"\/><uses-permission android:name="android.permission.BLUETOOTH_SCAN"\/><uses-permission android:name="android.permission.BLUETOOTH_CONNECT"\/><application/' android/app/src/main/AndroidManifest.xml
-
-      - name: Install Dependencies
-        working-directory: app
-        run: flutter pub get
+          flutter pub get
+          dart run flutter_launcher_icons
 
       - name: Build Android Release APK
         working-directory: app
         run: |
           flutter build apk --release
-          cp build/app/outputs/flutter-apk/app-release.apk ../self-driving-bike-v1.0.${{ github.run_number }}.apk
+          cp build/app/outputs/flutter-apk/app-release.apk ../self-driving-motorcycle-android-v1.0.${{ github.run_number }}.apk
 
-      - name: Upload APK to Workflow Artifacts
+      - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: self-driving-bike-android-apk
-          path: self-driving-bike-v1.0.${{ github.run_number }}.apk
+          name: android-apk
+          path: self-driving-motorcycle-android-v1.0.${{ github.run_number }}.apk
+
+  build-ios:
+    name: Build iOS IPA (iPhone / iPad with Custom Icon)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Generate iOS Folder, Inject Info.plist Permissions & App Icon
+        working-directory: app
+        run: |
+          cp lib/main.dart /tmp/main.dart.bak
+          cp pubspec.yaml /tmp/pubspec.yaml.bak
+          flutter create . --project-name bike_telemetry_app --org edu.asu.mct332s
+          cp /tmp/pubspec.yaml.bak pubspec.yaml
+          cp /tmp/main.dart.bak lib/main.dart
+          /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string 'Required to track live motorcycle GPS route on map.'" ios/Runner/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Add :NSBluetoothAlwaysUsageDescription string 'Required to select and connect to your ESP32 Bluetooth module.'" ios/Runner/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Add :NSBluetoothPeripheralUsageDescription string 'Required to receive live motorcycle sensor telemetry.'" ios/Runner/Info.plist || true
+          flutter pub get
+          dart run flutter_launcher_icons
+
+      - name: Build Unsigned iOS Release & Package as .ipa
+        working-directory: app
+        run: |
+          flutter build ios --release --no-codesign
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r ../self-driving-motorcycle-ios-v1.0.${{ github.run_number }}.ipa Payload
+
+      - name: Upload iOS IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: self-driving-motorcycle-ios-v1.0.${{ github.run_number }}.ipa
+
+  publish-release:
+    name: Create GitHub Release (Android APK + iOS IPA)
+    needs: [build-android, build-ios]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Built Android & iOS Packages
+        uses: actions/download-artifact@v4
+        with:
+          path: release_files
 
       - name: Create New GitHub Release Automatically
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: "Self-Driving Bike App v1.0.${{ github.run_number }}"
+          name: "Self-Balancing Motorcycle App v1.0.${{ github.run_number }} (Android & iOS)"
           body: |
-            ### 🚲 Self-Driving Bike (MCT332s) — Automated Build v1.0.${{ github.run_number }}
-            - **Android App (`.apk`):** Includes live phone GPS tracking, OpenStreetMap/OSRM place search & route navigation, Bluetooth BLE connection to ESP32, and live 5-sensor HUD (`Hall-Effect`, `Steering Potentiometer`, `Conditioned Strain Gauge`, `MPU6050 IMU`, `Wheel Speed Encoder`).
-            - **ESP32 Firmware (`.ino`):** Included below for Arduino IDE upload.
+            ### 🏍️ Self-Balancing Motorcycle Station (MCT332s) — v1.0.${{ github.run_number }}
+            - **Android Release (`.apk`):** Includes Bluetooth Module Picker, Instant Arabic/English Map Autocomplete (e.g., Faculty of Engineering Ain Shams University), Custom Motorcycle App Icon, and 4-Sensor Fall-Prediction Station.
+            - **iOS Release (`.ipa`):** Unsigned iOS bundle for iPhone/iPad (installable via AltStore / Sideloadly).
           files: |
-            self-driving-bike-v1.0.${{ github.run_number }}.apk
+            release_files/android-apk/*.apk
+            release_files/ios-ipa/*.ipa
             esp/esp32_ble_sensors.ino
           draft: false
           prerelease: false
