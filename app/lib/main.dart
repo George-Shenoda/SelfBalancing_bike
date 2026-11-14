@@ -8,7 +8,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:http/http.dart' as http;
-import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   runApp(const MotorcycleTelemetryApp());
@@ -203,10 +202,14 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
       } catch (_) {}
     }
 
-    final waUri = Uri.parse("https://wa.me/$cleanPhone?text=$encodedMsg");
-    try {
-      await launchUrl(waUri, mode: LaunchMode.externalApplication);
-    } catch (_) {}
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFFE11D48),
+          content: Text("🚨 Auto-WhatsApp SOS dispatched to +$cleanPhone ($mapsUrl)"),
+        ),
+      );
+    }
   }
 
   void _openSosSetupModal() {

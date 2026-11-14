@@ -14,8 +14,6 @@ dependencies:
   geolocator: ^11.0.0
   flutter_blue_plus: ^1.32.7
   http: ^1.2.1
-  url_launcher: ^6.2.5
-  shared_preferences: ^2.2.2
 
 dev_dependencies:
   flutter_test:
