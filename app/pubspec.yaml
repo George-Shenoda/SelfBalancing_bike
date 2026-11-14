@@ -1,11 +1,8 @@
 name: bike_telemetry_app
-description: MCT332s Self-Balancing Motorcycle - Live GPS Navigation, Bluetooth Module Picker & 4-Sensor Fall Prediction (Android & iOS).
-publish_to: 'none'
-version: 1.0.0+1
-
+description: MotoGuard Smart Motorcycle Telemetry & Safety Cockpit
+version: 1.2.0+3
 environment:
   sdk: '>=3.2.0 <4.0.0'
-
 dependencies:
   flutter:
     sdk: flutter
@@ -14,20 +11,4 @@ dependencies:
   geolocator: ^11.0.0
   flutter_blue_plus: ^1.32.7
   http: ^1.2.1
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_lints: ^3.0.0
-  flutter_launcher_icons: ^0.13.1
-
-flutter_launcher_icons:
-  android: true
-  ios: true
-  remove_alpha_ios: true
-  image_path: "assets/icon/app_icon.png"
-
-flutter:
-  uses-material-design: true
-  assets:
-    - assets/icon/app_icon.png
+  url_launcher: ^6.2.5

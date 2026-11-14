@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   runApp(const MotorcycleTelemetryApp());
@@ -18,7 +20,7 @@ class MotorcycleTelemetryApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'MotoGuard Sensor Station',
+      title: 'MotoGuard',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF020617),
@@ -28,8 +30,37 @@ class MotorcycleTelemetryApp extends StatelessWidget {
   }
 }
 
-// Built-in Egypt & Cairo Landmarks for Instant Zero-Latency Autocomplete (Arabic & English)
 const List<Map<String, dynamic>> kEgyptLandmarks = [
+  {
+    'name': 'Tahrir Square, Downtown Cairo (ميدان التحرير - وسط البلد)',
+    'keywords': 'ميدان التحرير وسط البلد tahrir square downtown cairo',
+    'lat': 30.0444,
+    'lon': 31.2357,
+  },
+  {
+    'name': 'Cairo Tower, Zamalek (برج القاهرة - الزمالك)',
+    'keywords': 'برج القاهرة برج القاهره الزمالك cairo tower zamalek',
+    'lat': 30.0459,
+    'lon': 31.2243,
+  },
+  {
+    'name': 'Baron Empain Palace (قصر البارون - مصر الجديدة)',
+    'keywords': 'قصر البارون مصر الجديدة baron palace heliopolis',
+    'lat': 30.0866,
+    'lon': 31.3283,
+  },
+  {
+    'name': 'Roxy Square, Heliopolis (ميدان روكسي - مصر الجديدة)',
+    'keywords': 'روكسي ميدان روكسى مصر الجديدة مصر الجديده roxy square heliopolis',
+    'lat': 30.0914,
+    'lon': 31.3145,
+  },
+  {
+    'name': 'Abbassia Square & Metro (ميدان العباسية ومحطة المترو)',
+    'keywords': 'ميدان العباسية مترو العباسيه abbassia square metro',
+    'lat': 30.0725,
+    'lon': 31.2839,
+  },
   {
     'name': 'Faculty of Engineering, Ain Shams University (كلية الهندسة جامعة عين شمس - العباسية)',
     'keywords': 'كلية هندسة عين شمس كليه الهندسه جامعه عين شمس عباسية العباسيه ain shams engineering faculty abbassia',
@@ -43,40 +74,10 @@ const List<Map<String, dynamic>> kEgyptLandmarks = [
     'lon': 31.2858,
   },
   {
-    'name': 'Abbassia Square & Metro (ميدان العباسية ومحطة المترو)',
-    'keywords': 'ميدان العباسية مترو العباسيه abbassia square metro',
-    'lat': 30.0725,
-    'lon': 31.2839,
-  },
-  {
-    'name': 'Roxy Square, Heliopolis (ميدان روكسي - مصر الجديدة)',
-    'keywords': 'روكسي ميدان روكسى مصر الجديدة مصر الجديده roxy square heliopolis',
-    'lat': 30.0914,
-    'lon': 31.3145,
-  },
-  {
-    'name': 'Baron Empain Palace (قصر البارون - مصر الجديدة)',
-    'keywords': 'قصر البارون مصر الجديدة baron palace heliopolis',
-    'lat': 30.0866,
-    'lon': 31.3283,
-  },
-  {
     'name': 'Nasr City — Abbas El-Akkad (مدينة نصر - عباس العقاد)',
     'keywords': 'مدينة نصر مدينه نصر عباس العقاد nasr city abbas el akkad',
     'lat': 30.0618,
     'lon': 31.3369,
-  },
-  {
-    'name': 'Tahrir Square, Downtown Cairo (ميدان التحرير - وسط البلد)',
-    'keywords': 'ميدان التحرير وسط البلد tahrir square downtown cairo',
-    'lat': 30.0444,
-    'lon': 31.2357,
-  },
-  {
-    'name': 'Faculty of Engineering, Cairo University (كلية الهندسة جامعة القاهرة)',
-    'keywords': 'كلية هندسة القاهرة كليه الهندسه جامعه القاهره الجيزة cairo university engineering',
-    'lat': 30.0262,
-    'lon': 31.2118,
   },
 ];
 
@@ -103,46 +104,208 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
   static const String serviceUuid = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
   static const String charUuid    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
-  LatLng _currentGps = const LatLng(30.0914, 31.3145);
-  LatLng? _destination = const LatLng(30.0647, 31.2789);
-  String _destLabel = "Faculty of Engineering, Ain Shams University";
+  LatLng _currentGps = const LatLng(30.0444, 31.2357);
+  LatLng? _destination;
+  String _destLabel = "Select a destination to start navigation";
   List<LatLng> _routePoints = [];
-  double _routeDistanceKm = 4.20;
-  int _routeEtaMin = 9;
+  double _routeDistanceKm = 0.0;
+  int _routeEtaMin = 0;
   bool _gpsActive = false;
   StreamSubscription<Position>? _gpsSub;
   List<Map<String, dynamic>> _searchResults = [];
   Timer? _debounce;
 
-  // Bluetooth Module Selection State
   BluetoothDevice? _espDevice;
   StreamSubscription<List<int>>? _bleNotifySub;
-  String _bleStatus = "Select BT";
+  String _bleStatus = "Pair Vehicle";
   bool _bleConnected = false;
 
-  // 4 Approved Motorcycle Sensors — Strictly 0.0 when disconnected!
-  bool _s1RainWet = false;      // S1 (ON/OFF): Water-Drop Sensor (FC-37) on GPIO 27
-  double _s2SteerDeg = 0.0;     // S2 (0-5V Analog): Steering Potentiometer on GPIO 34
+  bool _alarmEnabled = true;
+  Timer? _alarmTimer;
+  String _currentAlarmMode = "NONE";
+  String _sosPhone = "";
+  String _sosRiderName = "George Shenoda";
+  String _sosApiKey = "";
+  bool _autoSosEnabled = true;
+  bool _sosTriggeredForCurrentFall = false;
+
+  bool _s1RainWet = false;
+  double _s2SteerDeg = 0.0;
   double _s2PotVolts = 0.00;
-  double _s3SpeedKmh = 0.0;     // S3 (Conditioned): Wheel Speed Encoder + LPF + Schmitt Trigger on GPIO 18
+  double _s3SpeedKmh = 0.0;
   int _s3Rpm = 0;
-  double _s4RollDeg = 0.0;      // S4 (Extra): MPU6050 Roll Lean Angle (deg)
-  double _s4RollRate = 0.0;     // S4 (Extra): MPU6050 Roll Angular Velocity (deg/s)
+  double _s4RollDeg = 0.0;
+  double _s4RollRate = 0.0;
 
   @override
   void initState() {
     super.initState();
     _initGpsTracking();
-    _fetchOsrmRoute(_currentGps, _destination!);
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _alarmTimer?.cancel();
     _gpsSub?.cancel();
     _bleNotifySub?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _updateAlarmLoop(String mode) {
+    if (!_alarmEnabled) mode = "NONE";
+    if (mode == _currentAlarmMode) return;
+    _currentAlarmMode = mode;
+    _alarmTimer?.cancel();
+
+    if (mode == "WARN") {
+      SystemSound.play(SystemSoundType.alert);
+      HapticFeedback.mediumImpact();
+      _alarmTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
+        SystemSound.play(SystemSoundType.alert);
+        HapticFeedback.mediumImpact();
+      });
+    } else if (mode == "FALL") {
+      SystemSound.play(SystemSoundType.alert);
+      HapticFeedback.heavyImpact();
+      _alarmTimer = Timer.periodic(const Duration(milliseconds: 350), (_) {
+        SystemSound.play(SystemSoundType.alert);
+        HapticFeedback.heavyImpact();
+      });
+    }
+  }
+
+  Future<void> _dispatchWhatsappSos() async {
+    final cleanPhone = _sosPhone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (cleanPhone.isEmpty) return;
+
+    final lat = _currentGps.latitude.toStringAsFixed(5);
+    final lon = _currentGps.longitude.toStringAsFixed(5);
+    final mapsUrl = "https://maps.google.com/?q=$lat,$lon";
+    final roadStr = _s1RainWet ? "Wet Surface" : "Dry Road";
+
+    final msg = "🚨 *EMERGENCY MOTORCYCLE FALL ALERT (MotoGuard)* 🚨\n"
+        "Rider: $_sosRiderName\n"
+        "Status: Fall detected!\n"
+        "Lean Angle: ${_s4RollDeg.toStringAsFixed(1)}° (${_s4RollRate.toStringAsFixed(1)} °/s)\n"
+        "Steering Angle: ${_s2SteerDeg.toStringAsFixed(1)}° | Road: $roadStr\n"
+        "📍 Live Location: $mapsUrl";
+
+    final encodedMsg = Uri.encodeComponent(msg);
+
+    if (_sosApiKey.trim().isNotEmpty) {
+      try {
+        final apiUri = Uri.parse(
+          "https://api.callmebot.com/whatsapp.php?phone=$cleanPhone&text=$encodedMsg&apikey=${Uri.encodeComponent(_sosApiKey.trim())}",
+        );
+        http.get(apiUri);
+      } catch (_) {}
+    }
+
+    final waUri = Uri.parse("https://wa.me/$cleanPhone?text=$encodedMsg");
+    try {
+      await launchUrl(waUri, mode: LaunchMode.externalApplication);
+    } catch (_) {}
+  }
+
+  void _openSosSetupModal() {
+    final phoneCtrl = TextEditingController(text: _sosPhone);
+    final nameCtrl = TextEditingController(text: _sosRiderName);
+    final keyCtrl = TextEditingController(text: _sosApiKey);
+    bool autoCheck = _autoSosEnabled;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF0F172A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 16,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "🆘 Emergency WhatsApp SOS",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    "Automatic fall alert & live GPS location sharing via WhatsApp.",
+                    style: TextStyle(fontSize: 12, color: Colors.white60),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: phoneCtrl,
+                    keyboardType: TextInputType.phone,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: "Emergency Contact WhatsApp Number (+20...)",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: nameCtrl,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: "Rider Name",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: keyCtrl,
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    decoration: const InputDecoration(
+                      labelText: "WhatsApp Cloud Gateway Key (Optional)",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  SwitchListTile(
+                    value: autoCheck,
+                    activeColor: const Color(0xFF10B981),
+                    title: const Text(
+                      "Automatically send WhatsApp alert when a fall is detected",
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    onChanged: (v) => setModalState(() => autoCheck = v),
+                  ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+                      onPressed: () {
+                        setState(() {
+                          _sosPhone = phoneCtrl.text.trim();
+                          _sosRiderName = nameCtrl.text.trim().isEmpty ? "George Shenoda" : nameCtrl.text.trim();
+                          _sosApiKey = keyCtrl.text.trim();
+                          _autoSosEnabled = autoCheck;
+                        });
+                        Navigator.pop(ctx);
+                      },
+                      icon: const Icon(Icons.save, color: Colors.white),
+                      label: const Text("Save Emergency Contact", style: TextStyle(color: Colors.white)),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _initGpsTracking() async {
@@ -164,6 +327,18 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
     ).listen((Position position) {
       setState(() => _currentGps = LatLng(position.latitude, position.longitude));
       if (_destination != null) _fetchOsrmRoute(_currentGps, _destination!);
+    });
+  }
+
+  void _clearDestination() {
+    setState(() {
+      _searchController.clear();
+      _searchResults = [];
+      _destination = null;
+      _destLabel = "Select a destination to start navigation";
+      _routePoints = [];
+      _routeDistanceKm = 0.0;
+      _routeEtaMin = 0;
     });
   }
 
@@ -193,7 +368,7 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
         final uri = Uri.parse(
           'https://nominatim.openstreetmap.org/search?format=json&countrycodes=eg&q=${Uri.encodeComponent(query)}&limit=5',
         );
-        final res = await http.get(uri, headers: {'User-Agent': 'MCT332sMotorcycleApp/1.0'});
+        final res = await http.get(uri, headers: {'User-Agent': 'MotoGuardApp/1.0'});
         if (res.statusCode == 200) {
           final List remote = json.decode(res.body);
           final combined = List<Map<String, dynamic>>.from(localMatches);
@@ -259,19 +434,15 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      "🔵 Select Bluetooth Module",
+                      "🔵 Pair Motorcycle via Bluetooth",
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                     ),
                     TextButton.icon(
                       onPressed: () => FlutterBluePlus.startScan(timeout: const Duration(seconds: 6)),
                       icon: const Icon(Icons.refresh, size: 16),
-                      label: const Text("Rescan"),
+                      label: const Text("Scan"),
                     ),
                   ],
-                ),
-                const Text(
-                  "Tap any discovered Bluetooth device below to connect:",
-                  style: TextStyle(fontSize: 12, color: Colors.white60),
                 ),
                 const SizedBox(height: 10),
                 SizedBox(
@@ -283,7 +454,7 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
                       if (results.isEmpty) {
                         return const Center(
                           child: Text(
-                            "Scanning for nearby Bluetooth modules...\n(Make sure Bluetooth & Location are ON)",
+                            "Searching for nearby motorcycle telemetry unit...\n(Ensure Bluetooth & Location are enabled)",
                             textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.white54, fontSize: 12),
                           ),
@@ -298,11 +469,11 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
                               ? r.device.platformName
                               : (r.advertisementData.advName.isNotEmpty
                                   ? r.advertisementData.advName
-                                  : "Bluetooth Module (${r.device.remoteId})");
+                                  : "Vehicle Unit (${r.device.remoteId})");
                           return ListTile(
                             leading: const Icon(Icons.bluetooth, color: Color(0xFF38BDF8)),
                             title: Text(dName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                            subtitle: Text("ID: ${r.device.remoteId} • RSSI: ${r.rssi} dBm",
+                            subtitle: Text("Signal: ${r.rssi} dBm",
                                 style: const TextStyle(color: Colors.white54, fontSize: 11)),
                             trailing: ElevatedButton(
                               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7)),
@@ -310,7 +481,7 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
                                 Navigator.pop(ctx);
                                 await _connectToChosenDevice(r.device, dName);
                               },
-                              child: const Text("Connect", style: TextStyle(color: Colors.white, fontSize: 12)),
+                              child: const Text("Pair", style: TextStyle(color: Colors.white, fontSize: 12)),
                             ),
                           );
                         },
@@ -348,7 +519,7 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
         }
       }
     } catch (e) {
-      setState(() => _bleStatus = "BT Failed");
+      setState(() => _bleStatus = "Pair Vehicle");
     }
   }
 
@@ -365,14 +536,39 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
         _s4RollDeg  = (d['rollDeg'] ?? 0.0).toDouble();
         _s4RollRate = (d['rollRate'] ?? 0.0).toDouble();
       });
+      _checkAlarmAndAutoSos();
     } catch (_) {}
+  }
+
+  void _checkAlarmAndAutoSos() {
+    final double mu = _s1RainWet ? 0.35 : 0.75;
+    final double maxSafeLean = _s1RainWet ? 15.0 : 35.0;
+    final double predRoll = (_s4RollDeg + _s4RollRate * 0.45).abs();
+    final double vMs = _s3SpeedKmh / 3.6;
+    final double latAccel = (vMs * vMs / 0.55) * math.tan((_s2SteerDeg.abs() * math.pi) / 180.0);
+    final double risk = math.min(100.0, math.max(predRoll / maxSafeLean, latAccel / (mu * 9.81)) * 100.0);
+
+    if (risk >= 85 || predRoll >= maxSafeLean) {
+      _updateAlarmLoop("FALL");
+      if (!_sosTriggeredForCurrentFall && _autoSosEnabled && _sosPhone.isNotEmpty) {
+        _sosTriggeredForCurrentFall = true;
+        _dispatchWhatsappSos();
+      }
+    } else if (risk >= 55 || (_s1RainWet && _s3SpeedKmh > 15)) {
+      _updateAlarmLoop("WARN");
+    } else {
+      _updateAlarmLoop("NONE");
+      if (_s4RollDeg.abs() < 10.0) {
+        _sosTriggeredForCurrentFall = false;
+      }
+    }
   }
 
   Map<String, dynamic> _evaluateStability() {
     if (!_bleConnected && _s3SpeedKmh == 0.0 && _s4RollDeg == 0.0) {
       return {
-        'verdict': '⏳ WAITING FOR ESP32 — ALL SENSORS AT 0.0',
-        'solution': 'Standby (0.0 km/h). Pair Bluetooth module to stream real sensor readings.',
+        'verdict': '🛡️ VEHICLE STANDBY — CONNECT BLUETOOTH',
+        'solution': 'Ready. Tap Pair Vehicle to begin live telemetry.',
         'color': const Color(0xFF64748B),
         'risk': 0,
       };
@@ -389,22 +585,22 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
 
     if (risk >= 85 || predRoll >= maxSafeLean) {
       return {
-        'verdict': '🚨 CRITICAL: MOTORCYCLE WILL FALL / SKID!',
-        'solution': 'Steer INTO the lean immediately & slow down to <= $recSafeSpeed km/h!',
+        'verdict': '🚨 CRITICAL FALL DETECTED — EMERGENCY ALERT ACTIVE',
+        'solution': 'Steer INTO the lean immediately! Emergency SOS active.',
         'color': const Color(0xFFF43F5E),
         'risk': risk.round(),
       };
     } else if (risk >= 55 || (_s1RainWet && _s3SpeedKmh > 15)) {
       return {
-        'verdict': _s1RainWet ? '🌧️ WET ROAD: REDUCE MOTORCYCLE SPEED!' : '⚠️ CAUTION: HIGH CORNERING LOAD',
-        'solution': 'Slow down to <= $recSafeSpeed km/h & keep lean below ±${maxSafeLean.toInt()}°.',
+        'verdict': _s1RainWet ? '🌧️ WET ROAD WARNING — REDUCE SPEED' : '⚠️ STABILITY WARNING — HIGH LEAN ANGLE',
+        'solution': 'Keep speed <= $recSafeSpeed km/h & lean within ±${maxSafeLean.toInt()}°.',
         'color': const Color(0xFFF59E0B),
         'risk': risk.round(),
       };
     }
     return {
-      'verdict': '✅ STABLE — MOTORCYCLE WILL HOLD TRACTION',
-      'solution': 'Safe to ride (Max safe speed <= $recSafeSpeed km/h, Max lean ±${maxSafeLean.toInt()}°).',
+      'verdict': '✅ OPTIMAL STABILITY & TRACTION',
+      'solution': 'Normal ride conditions (Safe speed <= $recSafeSpeed km/h, Max lean ±${maxSafeLean.toInt()}°).',
       'color': const Color(0xFF10B981),
       'risk': risk.round(),
     };
@@ -414,7 +610,6 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
   Widget build(BuildContext context) {
     final pred = _evaluateStability();
     final Color statusColor = pred['color'] as Color;
-    final int pulseHz = ((_s3Rpm * 20) / 60).round();
 
     return Scaffold(
       appBar: AppBar(
@@ -426,12 +621,35 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
             Icon(Icons.two_wheeler, color: Color(0xFF38BDF8), size: 22),
             SizedBox(width: 8),
             Text(
-              "MotoGuard Station",
+              "MotoGuard",
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white),
             ),
           ],
         ),
         actions: [
+          IconButton(
+            onPressed: () {
+              setState(() {
+                _alarmEnabled = !_alarmEnabled;
+                if (!_alarmEnabled) _updateAlarmLoop("NONE");
+              });
+            },
+            icon: Icon(
+              _alarmEnabled ? Icons.volume_up : Icons.volume_off,
+              color: _alarmEnabled ? Colors.amber : Colors.white54,
+              size: 20,
+            ),
+            tooltip: "Alert Sound",
+          ),
+          IconButton(
+            onPressed: _openSosSetupModal,
+            icon: Icon(
+              Icons.sos,
+              color: _sosPhone.isNotEmpty ? const Color(0xFF10B981) : Colors.redAccent,
+              size: 22,
+            ),
+            tooltip: "Emergency SOS",
+          ),
           TextButton.icon(
             onPressed: _openBluetoothModulePicker,
             icon: Icon(
@@ -447,31 +665,26 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
           IconButton(
             onPressed: _initGpsTracking,
             icon: Icon(Icons.my_location, color: _gpsActive ? const Color(0xFF10B981) : Colors.amber, size: 20),
-            tooltip: "Enable Live GPS",
+            tooltip: "GPS",
           ),
         ],
       ),
-      // 50/50 SPLIT COCKPIT:
-      // Top Half = Large Live GPS Navigation Map + Search Bar
-      // Bottom Half = Stability Prediction Banner + Large 2x2 Sensor Cards (All visible simultaneously!)
       body: Column(
         children: [
-          // HALF 1: LARGE LIVE GPS NAVIGATION MAP (50% of screen height)
           Expanded(
             flex: 50,
             child: Stack(
               children: [
-                // Map (NO onTap callback — touching/dragging map ONLY pans/zooms!)
                 FlutterMap(
                   mapController: _mapController,
                   options: MapOptions(
                     initialCenter: _currentGps,
-                    initialZoom: 14.0,
+                    initialZoom: 13.5,
                   ),
                   children: [
                     TileLayer(
                       urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'edu.asu.mct332s.motoguard',
+                      userAgentPackageName: 'com.shenodev.motoguard',
                     ),
                     if (_routePoints.isNotEmpty)
                       PolylineLayer(
@@ -504,7 +717,6 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
                   ],
                 ),
 
-                // Floating Search Bar + Autocomplete Dropdown over Top of Map
                 Padding(
                   padding: const EdgeInsets.all(8.0),
                   child: Column(
@@ -526,21 +738,16 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
                                 onChanged: _onSearchChanged,
                                 style: const TextStyle(color: Colors.white, fontSize: 13),
                                 decoration: const InputDecoration(
-                                  hintText: 'Search destination (e.g. كلية هندسة عين شمس)...',
+                                  hintText: 'Search destination...',
                                   hintStyle: TextStyle(color: Colors.white54),
                                   border: InputBorder.none,
                                 ),
                               ),
                             ),
-                            if (_searchController.text.isNotEmpty)
+                            if (_searchController.text.isNotEmpty || _destination != null)
                               IconButton(
                                 icon: const Icon(Icons.clear, size: 18, color: Colors.white54),
-                                onPressed: () {
-                                  setState(() {
-                                    _searchController.clear();
-                                    _searchResults = [];
-                                  });
-                                },
+                                onPressed: _clearDestination,
                               ),
                           ],
                         ),
@@ -591,7 +798,6 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
                   ),
                 ),
 
-                // Route Info Pill at Bottom of Map
                 Align(
                   alignment: Alignment.bottomLeft,
                   child: Container(
@@ -603,7 +809,9 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
                       border: Border.all(color: const Color(0xFF334155)),
                     ),
                     child: Text(
-                      "🏍️ ${_destLabel.split('(').first.trim()} • ${_routeDistanceKm.toStringAsFixed(2)} km ($_routeEtaMin min)",
+                      _destination == null
+                          ? "🏍️ $_destLabel"
+                          : "🏍️ ${_destLabel.split('(').first.trim()} • ${_routeDistanceKm.toStringAsFixed(2)} km ($_routeEtaMin min)",
                       style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
                     ),
                   ),
@@ -612,7 +820,6 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
             ),
           ),
 
-          // HALF 2: LARGE 4-SENSOR STATION + STABILITY PREDICTION BANNER (50% of screen height)
           Expanded(
             flex: 50,
             child: Container(
@@ -621,7 +828,6 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Stability & Fall Prediction Banner
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
@@ -638,7 +844,7 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
                             Expanded(
                               child: Text(
                                 pred['verdict'] as String,
-                                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: statusColor),
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: statusColor),
                               ),
                             ),
                             Text(
@@ -660,7 +866,6 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
 
                   const SizedBox(height: 6),
 
-                  // 2x2 Grid of Large Sensor Cards
                   Expanded(
                     child: Column(
                       children: [
@@ -669,20 +874,20 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
                             children: [
                               Expanded(
                                 child: _buildBigSensorCard(
-                                  badge: "S1 • ON/OFF (GPIO 27)",
-                                  title: "Rain / Water Sensor",
-                                  mainValue: _s1RainWet ? "ON (WET 🌧️)" : "OFF (DRY)",
-                                  sub: _s1RainWet ? "μ=0.35 | Max ±15°" : "μ=0.75 | Max ±35°",
+                                  badge: "SURFACE GRIP",
+                                  title: "Road Condition",
+                                  mainValue: _s1RainWet ? "WET ROAD" : "DRY ROAD",
+                                  sub: _s1RainWet ? "Max Lean: ±15°" : "Max Lean: ±35°",
                                   accent: _s1RainWet ? const Color(0xFF38BDF8) : const Color(0xFF10B981),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: _buildBigSensorCard(
-                                  badge: "S2 • 0–5V (GPIO 34)",
-                                  title: "Steering Angle (δ)",
+                                  badge: "HANDLEBAR",
+                                  title: "Steering Angle",
                                   mainValue: "${_s2SteerDeg > 0 ? '+' : ''}${_s2SteerDeg.toStringAsFixed(1)}°",
-                                  sub: "Out: ${_s2PotVolts.toStringAsFixed(2)} V",
+                                  sub: "Level: ${_s2PotVolts.toStringAsFixed(2)} V",
                                   accent: const Color(0xFF38BDF8),
                                 ),
                               ),
@@ -695,18 +900,18 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
                             children: [
                               Expanded(
                                 child: _buildBigSensorCard(
-                                  badge: "S3 • Cond. (GPIO 18)",
-                                  title: "Wheel Speed Encoder",
+                                  badge: "VELOCITY",
+                                  title: "Wheel Speed",
                                   mainValue: "${_s3SpeedKmh.toStringAsFixed(1)} km/h",
-                                  sub: "$_s3Rpm RPM ($pulseHz Hz)",
+                                  sub: "$_s3Rpm RPM",
                                   accent: const Color(0xFFC084FC),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: _buildBigSensorCard(
-                                  badge: "S4 • IMU (I2C 0x68)",
-                                  title: "MPU6050 Roll Lean (θ)",
+                                  badge: "CHASSIS TILT",
+                                  title: "Lean Angle",
                                   mainValue: "${_s4RollDeg > 0 ? '+' : ''}${_s4RollDeg.toStringAsFixed(1)}°",
                                   sub: "Rate: ${_s4RollRate.toStringAsFixed(1)} °/s",
                                   accent: const Color(0xFFFBBF24),
@@ -745,14 +950,9 @@ class _MapTelemetryHomePageState extends State<MapTelemetryHomePage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                badge,
-                style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: accent),
-              ),
-            ],
+          Text(
+            badge,
+            style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: accent),
           ),
           Text(
             title,
